@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>OTA AI Agent Dashboard</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: "Segoe UI", monospace;
+    background: #0b0f1a;
+    color: #e5e7eb;
+}
+header {
+    padding: 16px;
+    background: #111827;
+    border-bottom: 1px solid #1f2933;
+}
+h1 {
+    margin: 0;
+    font-size: 20px;
+    letter-spacing: 1px;
+}
+.container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 12px;
+}
+.panel {
+    background: #111827;
+    border: 1px solid #1f2933;
+    border-radius: 6px;
+    padding: 10px;
+    overflow: hidden;
+}
+.panel h2 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: #93c5fd;
+    border-bottom: 1px solid #1f2933;
+    padding-bottom: 4px;
+}
+.metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+.metric {
+    background: #020617;
+    padding: 8px;
+    border-radius: 4px;
+    text-align: center;
+}
+.metric span {
+    display: block;
+    font-size: 11px;
+    color: #9ca3af;
+}
+.metric strong {
+    font-size: 18px;
+    color: #22d3ee;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+th, td {
+    border-bottom: 1px solid #1f2933;
+    padding: 6px;
+    text-align: left;
+}
+th {
+    color: #93c5fd;
+    font-weight: normal;
+}
+.log {
+    font-size: 11px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+.log-entry {
+    border-bottom: 1px solid #020617;
+    padding: 4px 0;
+}
+.success { color: #22c55e; }
+.fail { color: #ef4444; }
+.warn { color: #f59e0b; }
+.info { color: #38bdf8; }
+footer {
+    padding: 8px;
+    text-align: center;
+    font-size: 11px;
+    color: #6b7280;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>🚗 OTA AI Agent – Live Dashboard</h1>
+</header>
+
+<div class="container">
+
+    <!-- METRICS -->
+    <div class="panel">
+        <h2>System Metrics</h2>
+        <div class="metrics" id="metrics"></div>
+    </div>
+
+    <!-- ACTIVE CAMPAIGNS -->
+    <div class="panel">
+        <h2>Active Campaigns</h2>
+        <table id="activeCampaigns">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>ECU</th>
+                    <th>Group</th>
+                    <th>Remaining</th>
+                    <th>Priority</th>
+                    <th>State</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- COMPLETED CAMPAIGNS -->
+    <div class="panel">
+        <h2>Completed Campaigns</h2>
+        <table id="completedCampaigns">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Result</th>
+                    <th>Ack Ratio</th>
+                    <th>Latency (s)</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- LOGS -->
+    <div class="panel">
+        <h2>Live Event Logs</h2>
+        <div class="log" id="logs"></div>
+    </div>
+
+</div>
+
+<footer>
+    WebSocket Dashboard • ATSC 3.0 OTA AI Agent
+</footer>
+
+<script>
+const ws = new WebSocket("ws://localhost:9001");
+
+const metricsDiv = document.getElementById("metrics");
+const activeBody = document.querySelector("#activeCampaigns tbody");
+const completedBody = document.querySelector("#completedCampaigns tbody");
+const logsDiv = document.getElementById("logs");
+
+let state = { metrics:{}, active_campaigns:{}, completed_campaigns:{}, logs:[] };
+
+ws.onopen = () => addLog("DASHBOARD_CONNECTED", "Connected to OTA AI Agent", "info");
+
+ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    if (msg.type === "snapshot") {
+        state = msg.state;
+        renderAll();
+    }
+
+    if (msg.type === "log") {
+        state.logs.push(msg.payload);
+        renderAll();
+    }
+};
+
+ws.onerror = () => addLog("WS_ERROR", "Dashboard WebSocket error", "fail");
+
+// ----------------- RENDER -----------------
+function renderAll() {
+    renderMetrics();
+    renderActive();
+    renderCompleted();
+    renderLogs();
+}
+
+function renderMetrics() {
+    metricsDiv.innerHTML = "";
+    const m = state.metrics || {};
+    for (const key in m) {
+        metricsDiv.innerHTML += `
+            <div class="metric">
+                <strong>${m[key]}</strong>
+                <span>${key}</span>
+            </div>`;
+    }
+}
+
+function renderActive() {
+    activeBody.innerHTML = "";
+    const active = state.active_campaigns || {};
+    for (const id in active) {
+        const c = active[id];
+        activeBody.innerHTML += `
+            <tr>
+                <td>${id}</td>
+                <td>${c.ecu_target}</td>
+                <td>${c.group}</td>
+                <td>${c.remaining}</td>
+                <td>${c.priority}</td>
+                <td class="info">${c.state}</td>
+            </tr>`;
+    }
+}
+
+function renderCompleted() {
+    completedBody.innerHTML = "";
+    const completed = state.completed_campaigns || {};
+    for (const id in completed) {
+        const c = completed[id];
+        completedBody.innerHTML += `
+            <tr>
+                <td>${id}</td>
+                <td class="${c.result === "SUCCESS" ? "success" : "fail"}">${c.result}</td>
+                <td>${c.ack_ratio}</td>
+                <td>${c.latency_sec?.toFixed(2)}</td>
+            </tr>`;
+    }
+}
+
+function renderLogs() {
+    logsDiv.innerHTML = "";
+    const logs = state.logs || [];
+    // keep only last 200 logs to prevent overflow
+    logs.slice(-200).reverse().forEach(l => {
+        const div = document.createElement("div");
+        div.className = "log-entry " + (l.level || "info");
+        div.textContent = `[${new Date(l.timestamp).toLocaleTimeString()}] ${l.event} → ${JSON.stringify(l)}`;
+        logsDiv.appendChild(div);
+    });
+}
+
+// ----------------- MANUAL REFRESH -----------------
+setInterval(() => renderAll(), 1000); // refresh every 1 sec
+function addLog(event, text, cls="info") {
+    const div = document.createElement("div");
+    div.className = "log-entry " + cls;
+    div.textContent = `[${new Date().toLocaleTimeString()}] ${event} → ${text}`;
+    logsDiv.prepend(div);
+}
+</script>
+
+</body>
+</html>
+
